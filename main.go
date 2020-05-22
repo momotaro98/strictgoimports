@@ -26,7 +26,7 @@ func main() {
 		os.Exit(invalidArgumentExitCode)
 	}
 
-	lintFailed := false
+	var lintFailed bool
 	for _, path := range flag.Args() {
 		rootPath, err := filepath.Abs(path)
 		if err != nil {
@@ -37,13 +37,14 @@ func main() {
 			lintFailed = true
 		}
 	}
+
 	if lintFailed {
 		os.Exit(1)
 	}
 }
 
 func walk(rootPath string) bool {
-	lintFailed := false
+	var lintFailed bool
 	filepath.Walk(rootPath, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
 			fmt.Printf("Error during filesystem walk: %v\n", err)
@@ -62,7 +63,7 @@ func walk(rootPath string) bool {
 		}
 		fset, _, ineff := RunLint(path)
 		for _, id := range ineff {
-			fmt.Printf("%s: ineffectual assignment to %s\n", fset.Position(id.Pos()), id.Name)
+			fmt.Printf("%s\n", fset.Position(id.Pos()))
 			lintFailed = true
 		}
 		return nil
