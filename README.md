@@ -1,1 +1,1 @@
-# strict-goimports
+# strictimportsort
