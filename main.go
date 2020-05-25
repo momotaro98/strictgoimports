@@ -83,15 +83,7 @@ func RunLint(path string) (*token.FileSet, []*ast.CommentGroup, []*ast.Ident) {
 		return nil, nil, nil
 	}
 
-	// 【現実】パート
-	//  strictimportsort はここで
-	//  import (
-	//		"fmt"
-	//		"github.com/user/repo"
-	// 	)
-	// に①なっている部分だけ抽出し、②text/scannerにかけて行の関係を取得する
-
-	// ①
+	// Actual goimport
 	cutOutImportLines := func() []string {
 		importLines := make([]string, 0, len(f.Imports)*2)
 		var cutStarted bool
@@ -117,34 +109,7 @@ func RunLint(path string) (*token.FileSet, []*ast.CommentGroup, []*ast.Ident) {
 	}
 	importLines := cutOutImportLines()
 
-	// 【理想】パート
-	// i. ASTから改行無しなimport()を生成して、 ii. cmd.exec(goimports) してしまえば 理想が得られる
-
-	//// i. 方法1
-	//genIdealImportLines := func() []string {
-	//	idealImportLines := make([]string, len(f.Imports))
-	//	for i, impt := range f.Imports {
-	//		var line string
-	//		if impt.Name != nil && impt.Name.Name != "" {
-	//			line += impt.Name.Name + ` `
-	//		}
-	//		if impt.Path != nil && impt.Path.Value != "" {
-	//			line += impt.Path.Value
-	//		}
-	//		idealImportLines[i] = line
-	//	}
-	//	return idealImportLines
-	//}
-	//idealImportLines := genIdealImportLines()
-	//
-	//genIdealImport := func(idealImportLines ...string) string {
-	//	lines := strings.Join(idealImportLines, "\n\t")
-	//	return "import (\n\t" + lines + "\n)"
-	//}
-	//idealImport := genIdealImport(idealImportLines...)
-	//fmt.Println(idealImport)
-
-	// i. 方法2
+	// Ideal goimport
 	genFileStringRemovedWhitelineInImport := func() string {
 		input, err := ioutil.ReadFile(path)
 		if err != nil {
@@ -204,9 +169,7 @@ func RunLint(path string) (*token.FileSet, []*ast.CommentGroup, []*ast.Ident) {
 	}
 	idealImportLines := cutOutImportLinesForIdeal(data)
 
-	// 【理想】と【現実】の突き合わせ
-	// 上の行から見ていって、現実が理想とずれているはじめの箇所だけ指摘して、理想と一緒に返す感じでいいか
-	// プリフィックスマッチさせればいけそう
+	// Compare Actual and Ideal
 
 	matchRealAndIdeal := func(real, ideal []string) (bool, int) {
 		var shorter []string
@@ -226,7 +189,6 @@ func RunLint(path string) (*token.FileSet, []*ast.CommentGroup, []*ast.Ident) {
 	if isSame {
 		return fset, nil, nil
 	}
-	// ② は 以下でいける
 	specifyInvalidLine := func(ImptLineIdx int) (lineNum int, lineText string) {
 		file, err := os.Open(path)
 		if err != nil {
