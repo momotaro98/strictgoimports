@@ -148,10 +148,6 @@ type imptLine struct {
 	pos         token.Pos
 }
 
-//func (l imptLine) isWhiteline() bool {
-//	return l.name != "" && l.path != ""
-//}
-
 func Run(path string) (fileSet *token.FileSet, pos []token.Pos, correctImport string) {
 	fileSet = token.NewFileSet()
 	f, err := parser.ParseFile(fileSet, path, nil, parser.ImportsOnly)
@@ -159,34 +155,10 @@ func Run(path string) (fileSet *token.FileSet, pos []token.Pos, correctImport st
 		return nil, nil, ""
 	}
 
-	// Build import lines for real
+	// Real part
 	realLines := buildImportLines(path, f)
 
-	// Actual goimport
-	//cutOutImportLines := func() []string {
-	//	importLines := make([]string, 0, len(f.Imports)*2)
-	//	var cutStarted bool
-	//	file, err := os.Open(path)
-	//	if err != nil {
-	//		panic(err)
-	//	}
-	//	defer file.Close()
-	//	s := bufio.NewScanner(file)
-	//	for s.Scan() {
-	//		text := s.Text()
-	//		if strings.HasPrefix(text, `)`) {
-	//			return importLines
-	//		} else if cutStarted {
-	//			importLines = append(importLines, text)
-	//		} else if strings.HasPrefix(text, `import (`) {
-	//			cutStarted = true
-	//		}
-	//	}
-	//	panic("should not here!")
-	//}
-	//importLines := cutOutImportLines()
-
-	// Ideal goimport
+	// Ideal part
 	// i.
 	genFileStringRemovedWhitelineInImport := func() string {
 		input, err := ioutil.ReadFile(path)
@@ -213,7 +185,6 @@ func Run(path string) (fileSet *token.FileSet, pos []token.Pos, correctImport st
 		return strings.Join(replacedLines, "\n")
 	}
 	idealLinesString := genFileStringRemovedWhitelineInImport()
-
 	// ii.
 	genIdealFileData := func(src string) []byte {
 		tempFile, err := writeTempFile("", "strict", []byte(src))
@@ -234,8 +205,7 @@ func Run(path string) (fileSet *token.FileSet, pos []token.Pos, correctImport st
 		return idealFileData
 	}
 	idealFileData := genIdealFileData(idealLinesString)
-
-	// Build import lines for real
+	// iii.
 	genIdealLines := func(src []byte) ImportLines {
 		tempFile, err := writeTempFile("", "strict", src)
 		if err != nil {
@@ -249,30 +219,11 @@ func Run(path string) (fileSet *token.FileSet, pos []token.Pos, correctImport st
 			panic(err)
 		}
 
-		// Build import lines for real
 		return buildImportLines(tempFile, f)
 	}
 	idealLines := genIdealLines(idealFileData)
 
-	//cutOutImportLinesForIdeal := func(data []byte) []string {
-	//	importLines := make([]string, 0, len(f.Imports)*2)
-	//	var cutStarted bool
-	//	lines := strings.Split(string(data), "\n") // High cost
-	//	for _, line := range lines {
-	//		if strings.HasPrefix(line, `)`) {
-	//			return importLines
-	//		} else if cutStarted {
-	//			importLines = append(importLines, line)
-	//		} else if strings.HasPrefix(line, `import (`) {
-	//			cutStarted = true
-	//		}
-	//	}
-	//	panic("should not here!")
-	//}
-	//idealImportLines := cutOutImportLinesForIdeal(idealFileData)
-
 	// Compare Actual and Ideal
-
 	matchRealAndIdeal := func(real, ideal ImportLines) (bool, int) {
 		var shorter ImportLines
 		if len(real) < len(ideal) {
@@ -292,37 +243,6 @@ func Run(path string) (fileSet *token.FileSet, pos []token.Pos, correctImport st
 		return fileSet, nil, ""
 	}
 
-	//specifyInvalidLine := func(ImptLineIdx int) (lineNum int, lineText string) {
-	//	// TODO: Use my builder
-	//	file, err := os.Open(path)
-	//	if err != nil {
-	//		panic(err)
-	//	}
-	//	defer file.Close()
-	//	sc := bufio.NewScanner(file)
-	//	var (
-	//		curLineNum    int
-	//		imptPos       int
-	//		importStarted bool
-	//	)
-	//	for sc.Scan() {
-	//		curLineNum++
-	//		line := sc.Text()
-	//
-	//		if imptPos == ImptLineIdx {
-	//			return curLineNum, line
-	//		}
-	//
-	//		if importStarted {
-	//			imptPos++
-	//		}
-	//
-	//		if strings.HasPrefix(line, `import (`) {
-	//			importStarted = true
-	//		}
-	//	}
-	//	panic("invalid")
-	//}
 	targetLine := realLines[ImptLineIdx]
 
 	return fileSet, []token.Pos{targetLine.pos}, "" // TODO: assemble correctImport string with ImportLines.String()
