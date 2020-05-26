@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -19,6 +20,7 @@ const (
 )
 
 var (
+	localPaths      = flag.String("local", "", "put imports beginning with this string after 3rd-party packages; comma-separated list")
 	dontRecurseFlag = flag.Bool("n", false, "don't recursively check paths")
 )
 
@@ -49,25 +51,25 @@ func main() {
 
 func walk(rootPath string) bool {
 	var lintFailed bool
-	filepath.Walk(rootPath, func(path string, fi os.FileInfo, err error) error {
+	filepath.Walk(rootPath, func(filePath string, fi os.FileInfo, err error) error {
 		if err != nil {
 			fmt.Printf("Error during filesystem walk: %v\n", err)
 			return nil
 		}
 		if fi.IsDir() {
-			if path != rootPath && (*dontRecurseFlag ||
-				filepath.Base(path) == "testdata" ||
-				filepath.Base(path) == "vendor") {
+			if filePath != rootPath && (*dontRecurseFlag ||
+				filepath.Base(filePath) == "testdata" ||
+				filepath.Base(filePath) == "vendor") {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !strings.HasSuffix(path, ".go") {
+		if !strings.HasSuffix(filePath, ".go") {
 			return nil
 		}
-		fset, poses, correctImport := Run(path)
+		fset, poses, correctImport := Run(filePath, *localPaths)
 		for _, pos := range poses {
-			fmt.Printf("%s: import not sorted correctly. should be replace to %s\n", fset.Position(pos), correctImport)
+			fmt.Printf("%s: import not sorted correctly. should be replace to\n%s\n", fset.Position(pos), correctImport)
 			lintFailed = true
 		}
 		return nil
@@ -75,93 +77,20 @@ func walk(rootPath string) bool {
 	return lintFailed
 }
 
-type ImportLines []*imptLine
-
-func buildImportLines(filePath string, f *ast.File) ImportLines {
-	work := func() []*imptLine {
-		lines := make([]*imptLine, 0, len(f.Imports)*2) // *2 means considering white lines in `import ()`
-
-		var cutStarted bool
-		file, err := os.Open(filePath)
-		if err != nil {
-			panic(err)
-		}
-		defer file.Close()
-
-		var (
-			curNum           int // will be imptLine.num
-			curFileLineNum   int // will be imptLine.fileLineNum
-			curImportSpecIdx int // will be imptLine.name, path, pos
-		)
-		s := bufio.NewScanner(file)
-		for s.Scan() {
-			curFileLineNum++
-
-			var (
-				name, path string
-				pos        token.Pos
-			)
-
-			text := s.Text()
-			if strings.HasPrefix(text, `)`) {
-				return lines
-			} else if strings.HasPrefix(text, `import (`) {
-				cutStarted = true
-			} else if cutStarted {
-				curNum++
-
-				if text == "" { // white line in `import ()`
-					// The following code considers only case where there's one white line, which means
-					// the target code must be formatted by gofmt in advance.
-					pos = f.Imports[curImportSpecIdx].Pos() - 2 // take "\t" and "\n" from head of next ImportSpec
-				} else {
-					if nm := f.Imports[curImportSpecIdx].Name; nm != nil {
-						name = f.Imports[curImportSpecIdx].Name.Name
-					}
-					path = f.Imports[curImportSpecIdx].Path.Value
-					pos = f.Imports[curImportSpecIdx].Pos()
-
-					curImportSpecIdx++
-				}
-
-				lines = append(lines, &imptLine{
-					num:         curNum,
-					name:        name,
-					path:        path,
-					fileLineNum: curFileLineNum,
-					pos:         pos,
-				})
-			}
-		}
-		panic("panic!")
-	}
-
-	return work()
-}
-
-type imptLine struct {
-	num  int    // import () の中で何番目の行数目か。1始まりである。
-	name string // import ( mypackage "github.com/user/package" ) の mypackage
-	path string // 上記の "github.com/user/package"
-	// comment string // comment out text at the line // if it's needed, let's implement TODO: Needed for telling correctImport string with comment
-	fileLineNum int
-	pos         token.Pos
-}
-
-func Run(path string) (fileSet *token.FileSet, pos []token.Pos, correctImport string) {
+func Run(filePath, localPaths string) (fileSet *token.FileSet, pos []token.Pos, correctImport string) {
 	fileSet = token.NewFileSet()
-	f, err := parser.ParseFile(fileSet, path, nil, parser.ImportsOnly)
+	f, err := parser.ParseFile(fileSet, filePath, nil, parser.ImportsOnly)
 	if err != nil {
 		return nil, nil, ""
 	}
 
 	// Real part
-	realLines := buildImportLines(path, f)
+	realLines := buildImportLines(filePath, f)
 
 	// Ideal part
 	// i.
 	genFileStringRemovedWhitelineInImport := func() string {
-		input, err := ioutil.ReadFile(path)
+		input, err := ioutil.ReadFile(filePath)
 		if err != nil {
 			panic(err)
 		}
@@ -193,11 +122,9 @@ func Run(path string) (fileSet *token.FileSet, pos []token.Pos, correctImport st
 		}
 		defer os.Remove(tempFile)
 
-		cmd := "goimports"
-		// TODO: get local flag
-		localPath := `""` // Should be comma separated if there're multiple local paths
-
-		idealFileData, err := exec.Command(cmd, "-local", localPath, tempFile).CombinedOutput()
+		idealFileData, err := exec.Command(
+			"goimports",
+			"-local", localPaths, tempFile).CombinedOutput()
 		if err != nil {
 			panic(err)
 		}
@@ -243,9 +170,100 @@ func Run(path string) (fileSet *token.FileSet, pos []token.Pos, correctImport st
 		return fileSet, nil, ""
 	}
 
-	targetLine := realLines[ImptLineIdx]
+	return fileSet, []token.Pos{realLines[ImptLineIdx].pos}, idealLines.String()
+}
 
-	return fileSet, []token.Pos{targetLine.pos}, "" // TODO: assemble correctImport string with ImportLines.String()
+type ImportLines []*imptLine
+
+func (ils ImportLines) String() string {
+	buf := bytes.NewBuffer(make([]byte, 0, len(ils)*50))
+	buf.WriteString("import (\n")
+	for i := range ils {
+		buf.WriteString("\t")
+		if nm := ils[i].name; nm != "" {
+			buf.WriteString(nm)
+			buf.WriteString(" ")
+		}
+		buf.WriteString(ils[i].path)
+		if c := ils[i].comment; c != "" {
+			buf.WriteString(" //")
+			buf.WriteString(ils[i].comment)
+		}
+		buf.WriteString("\n")
+	}
+	buf.WriteString(")")
+	return buf.String()
+}
+
+type imptLine struct {
+	name        string    // mp of `import ( mp "github.com/user/package" )`
+	path        string    // "github.com/user/package" above
+	comment     string    // comment out text at the line
+	fileLineNum int       // The number of the file's line
+	pos         token.Pos // File offset in the file. first char of the line
+}
+
+func buildImportLines(filePath string, f *ast.File) ImportLines {
+	work := func() []*imptLine {
+		lines := make([]*imptLine, 0, len(f.Imports)*2) // *2 means considering white lines in `import ()`
+
+		var cutStarted bool
+		file, err := os.Open(filePath)
+		if err != nil {
+			panic(err)
+		}
+		defer file.Close()
+
+		var (
+			curFileLineNum   int // will be imptLine.fileLineNum
+			curImportSpecIdx int // will be imptLine.name, path, pos
+		)
+		s := bufio.NewScanner(file)
+		for s.Scan() {
+			curFileLineNum++
+
+			var (
+				name, path, comment string
+				pos                 token.Pos
+			)
+
+			text := s.Text()
+			if strings.HasPrefix(text, `)`) {
+				return lines
+			} else if strings.HasPrefix(text, `import (`) {
+				cutStarted = true
+			} else if cutStarted {
+				if text == "" { // white line in `import ()`
+					// The following code considers only case where there's one white line, which means
+					// the target code must be formatted by gofmt in advance.
+					pos = f.Imports[curImportSpecIdx].Pos() - 2 // take "\t" and "\n" from head of next ImportSpec
+				} else {
+					if nm := f.Imports[curImportSpecIdx].Name; nm != nil {
+						name = f.Imports[curImportSpecIdx].Name.Name
+					}
+					path = f.Imports[curImportSpecIdx].Path.Value
+					pos = f.Imports[curImportSpecIdx].Pos()
+
+					if c := strings.SplitN(text, "//", 2); len(c) == 2 {
+						comment = c[1]
+					}
+
+					curImportSpecIdx++
+				}
+
+				lines = append(lines, &imptLine{
+					name:        name,
+					path:        path,
+					comment:     comment,
+					fileLineNum: curFileLineNum,
+					pos:         pos,
+				})
+			}
+		}
+		panic("panic!")
+	}
+
+	return work()
 }
 
 // writeTempFile is from official x/tools/cmd/goimports source code
