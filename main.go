@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/minio/minio/pkg/wildcard"
 )
 
 const (
@@ -21,6 +23,8 @@ const (
 
 var (
 	localPaths      = flag.String("local", "", "put imports beginning with this string after 3rd-party packages; comma-separated list")
+	excludes        = flag.String("exclude", "", "file names you wanna exclude; wile card is welcome; comma-separated list")
+	excludeDirs     = flag.String("exclude-dir", "", "directory names you wanna exclude; wile card is welcome; comma-separated list")
 	dontRecurseFlag = flag.Bool("n", false, "don't recursively check paths")
 )
 
@@ -57,12 +61,32 @@ func walk(rootPath string) bool {
 			return nil
 		}
 		if fi.IsDir() {
+			if *excludeDirs != "" {
+				patternDirs := strings.Split(*excludeDirs, ",")
+				p := strings.Split(filePath, "/")
+				dirName := p[len(p)-1]
+				for _, pattern := range patternDirs {
+					if wildcard.MatchSimple(pattern, dirName) {
+						return filepath.SkipDir
+					}
+				}
+			}
 			if filePath != rootPath && (*dontRecurseFlag ||
 				filepath.Base(filePath) == "testdata" ||
 				filepath.Base(filePath) == "vendor") {
 				return filepath.SkipDir
 			}
 			return nil
+		}
+		if *excludes != "" {
+			patternFiles := strings.Split(*excludes, ",")
+			p := strings.Split(filePath, "/")
+			fileName := p[len(p)-1]
+			for _, pattern := range patternFiles {
+				if wildcard.MatchSimple(pattern, fileName) {
+					return nil
+				}
+			}
 		}
 		if !strings.HasSuffix(filePath, ".go") {
 			return nil
@@ -203,11 +227,13 @@ type imptLine struct {
 	pos         token.Pos // File offset in the file. first char of the line
 }
 
+// buildImportLines returns empty length list when
+// the target code has no `import` or single path `import "path"`
 func buildImportLines(filePath string, f *ast.File) ImportLines {
 	work := func() []*imptLine {
 		lines := make([]*imptLine, 0, len(f.Imports)*2) // *2 means considering white lines in `import ()`
 
-		var cutStarted bool
+		var isImportedLinesStarted bool
 		file, err := os.Open(filePath)
 		if err != nil {
 			panic(err)
@@ -231,8 +257,8 @@ func buildImportLines(filePath string, f *ast.File) ImportLines {
 			if strings.HasPrefix(text, `)`) {
 				return lines
 			} else if strings.HasPrefix(text, `import (`) {
-				cutStarted = true
-			} else if cutStarted {
+				isImportedLinesStarted = true
+			} else if isImportedLinesStarted {
 				if text == "" { // white line in `import ()`
 					// The following code considers only case where there's one white line, which means
 					// the target code must be formatted by gofmt in advance.
@@ -260,7 +286,10 @@ func buildImportLines(filePath string, f *ast.File) ImportLines {
 				})
 			}
 		}
-		panic("panic!")
+		if isImportedLinesStarted {
+			panic("panic!")
+		}
+		return lines
 	}
 
 	return work()
