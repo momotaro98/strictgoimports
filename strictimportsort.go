@@ -1,105 +1,16 @@
-package main
+package strictimportsort
 
 import (
 	"bufio"
 	"bytes"
-	"flag"
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
-
-	"github.com/minio/minio/pkg/wildcard"
 )
-
-const (
-	invalidArgumentExitCode = 3
-)
-
-var (
-	localPaths      = flag.String("local", "", "put imports beginning with this string after 3rd-party packages; comma-separated list")
-	excludes        = flag.String("exclude", "", "file names you wanna exclude; wile card is welcome; comma-separated list")
-	excludeDirs     = flag.String("exclude-dir", "", "directory names you wanna exclude; wile card is welcome; comma-separated list")
-	dontRecurseFlag = flag.Bool("n", false, "don't recursively check paths")
-)
-
-func main() {
-	flag.Parse()
-
-	if len(flag.Args()) == 0 {
-		fmt.Println("missing argument: filepath")
-		os.Exit(invalidArgumentExitCode)
-	}
-
-	var lintFailed bool
-	for _, path := range flag.Args() {
-		rootPath, err := filepath.Abs(path)
-		if err != nil {
-			fmt.Printf("Error finding absolute path: %s", err)
-			os.Exit(invalidArgumentExitCode)
-		}
-		if walk(rootPath) {
-			lintFailed = true
-		}
-	}
-
-	if lintFailed {
-		os.Exit(1)
-	}
-}
-
-func walk(rootPath string) bool {
-	var lintFailed bool
-	filepath.Walk(rootPath, func(filePath string, fi os.FileInfo, err error) error {
-		if err != nil {
-			fmt.Printf("Error during filesystem walk: %v\n", err)
-			return nil
-		}
-		if fi.IsDir() {
-			if *excludeDirs != "" {
-				patternDirs := strings.Split(*excludeDirs, ",")
-				p := strings.Split(filePath, "/")
-				dirName := p[len(p)-1]
-				for _, pattern := range patternDirs {
-					if wildcard.MatchSimple(pattern, dirName) {
-						return filepath.SkipDir
-					}
-				}
-			}
-			if filePath != rootPath && (*dontRecurseFlag ||
-				filepath.Base(filePath) == "testdata" ||
-				filepath.Base(filePath) == "vendor") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if *excludes != "" {
-			patternFiles := strings.Split(*excludes, ",")
-			p := strings.Split(filePath, "/")
-			fileName := p[len(p)-1]
-			for _, pattern := range patternFiles {
-				if wildcard.MatchSimple(pattern, fileName) {
-					return nil
-				}
-			}
-		}
-		if !strings.HasSuffix(filePath, ".go") {
-			return nil
-		}
-		fset, poses, correctImport := Run(filePath, *localPaths)
-		for _, pos := range poses {
-			fmt.Printf("%s: import not sorted correctly. should be replace to\n%s\n", fset.Position(pos), correctImport)
-			lintFailed = true
-		}
-		return nil
-	})
-	return lintFailed
-}
 
 func Run(filePath, localPaths string) (fileSet *token.FileSet, pos []token.Pos, correctImport string) {
 	fileSet = token.NewFileSet()
@@ -203,7 +114,9 @@ func (ils ImportLines) String() string {
 	buf := bytes.NewBuffer(make([]byte, 0, len(ils)*50))
 	buf.WriteString("import (\n")
 	for i := range ils {
-		buf.WriteString("\t")
+		if !ils[i].isWhiteline() {
+			buf.WriteString("\t")
+		}
 		if nm := ils[i].name; nm != "" {
 			buf.WriteString(nm)
 			buf.WriteString(" ")
@@ -225,6 +138,10 @@ type imptLine struct {
 	comment     string    // comment out text at the line
 	fileLineNum int       // The number of the file's line
 	pos         token.Pos // File offset in the file. first char of the line
+}
+
+func (l *imptLine) isWhiteline() bool {
+	return l.name == "" && l.path == ""
 }
 
 // buildImportLines returns empty length list when
