@@ -19,74 +19,11 @@ func Run(filePath, localPaths string) (fileSet *token.FileSet, pos []token.Pos, 
 		return nil, nil, ""
 	}
 
-	// Real part
 	realLines := buildImportLines(filePath, f)
+	idealLines := buildIdealImportLines(filePath, localPaths)
 
-	// Ideal part
-	// i.
-	genFileStringRemovedWhitelineInImport := func() string {
-		input, err := ioutil.ReadFile(filePath)
-		if err != nil {
-			panic(err)
-		}
-		inputLines := strings.Split(string(input), "\n")
-
-		replacedLines := make([]string, 0, len(inputLines))
-		var isInImportBlock bool
-		for _, line := range inputLines {
-			if isInImportBlock && line == "" {
-				continue
-			} else {
-				replacedLines = append(replacedLines, line)
-			}
-			if strings.HasPrefix(line, `import (`) {
-				isInImportBlock = true
-			}
-			if isInImportBlock && strings.HasPrefix(line, `)`) {
-				isInImportBlock = false
-			}
-		}
-		return strings.Join(replacedLines, "\n")
-	}
-	idealLinesString := genFileStringRemovedWhitelineInImport()
-	// ii.
-	genIdealFileData := func(src string) []byte {
-		tempFile, err := writeTempFile("", "strict", []byte(src))
-		if err != nil {
-			panic(err)
-		}
-		defer os.Remove(tempFile)
-
-		idealFileData, err := exec.Command(
-			"goimports",
-			"-local", localPaths, tempFile).CombinedOutput()
-		if err != nil {
-			panic(err)
-		}
-
-		return idealFileData
-	}
-	idealFileData := genIdealFileData(idealLinesString)
-	// iii.
-	genIdealLines := func(src []byte) ImportLines {
-		tempFile, err := writeTempFile("", "strict", src)
-		if err != nil {
-			panic(err)
-		}
-		defer os.Remove(tempFile)
-
-		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, tempFile, nil, parser.ImportsOnly)
-		if err != nil {
-			panic(err)
-		}
-
-		return buildImportLines(tempFile, f)
-	}
-	idealLines := genIdealLines(idealFileData)
-
-	// Compare Actual and Ideal
-	matchRealAndIdeal := func(real, ideal ImportLines) (bool, int) {
+	// Compare Real import lines and Ideal import lines
+	if isSame, ImptLineIdx := func(real, ideal ImportLines) (bool, int) {
 		var shorter ImportLines
 		if len(real) < len(ideal) {
 			shorter = real
@@ -99,13 +36,11 @@ func Run(filePath, localPaths string) (fileSet *token.FileSet, pos []token.Pos, 
 			}
 		}
 		return true, -1
-	}
-	isSame, ImptLineIdx := matchRealAndIdeal(realLines, idealLines)
-	if isSame {
-		return fileSet, nil, ""
+	}(realLines, idealLines); !isSame {
+		return fileSet, []token.Pos{realLines[ImptLineIdx].pos}, idealLines.String()
 	}
 
-	return fileSet, []token.Pos{realLines[ImptLineIdx].pos}, idealLines.String()
+	return fileSet, nil, ""
 }
 
 type ImportLines []*imptLine
@@ -210,6 +145,69 @@ func buildImportLines(filePath string, f *ast.File) ImportLines {
 	}
 
 	return work()
+}
+
+func buildIdealImportLines(filePath, localPaths string) ImportLines {
+	genFileStringRemovedWhitelineInImport := func() string {
+		input, err := ioutil.ReadFile(filePath)
+		if err != nil {
+			panic(err)
+		}
+		inputLines := strings.Split(string(input), "\n")
+
+		replacedLines := make([]string, 0, len(inputLines))
+		var isInImportBlock bool
+		for _, line := range inputLines {
+			if isInImportBlock && line == "" {
+				continue
+			} else {
+				replacedLines = append(replacedLines, line)
+			}
+			if strings.HasPrefix(line, `import (`) {
+				isInImportBlock = true
+			}
+			if isInImportBlock && strings.HasPrefix(line, `)`) {
+				isInImportBlock = false
+			}
+		}
+		return strings.Join(replacedLines, "\n")
+	}
+	idealLinesString := genFileStringRemovedWhitelineInImport()
+
+	genIdealFileData := func(src string) []byte {
+		tempFile, err := writeTempFile("", "strict", []byte(src))
+		if err != nil {
+			panic(err)
+		}
+		defer os.Remove(tempFile)
+
+		idealFileData, err := exec.Command(
+			"goimports",
+			"-local", localPaths, tempFile).CombinedOutput()
+		if err != nil {
+			panic(err)
+		}
+
+		return idealFileData
+	}
+	idealFileData := genIdealFileData(idealLinesString)
+
+	genIdealLines := func(src []byte) ImportLines {
+		tempFile, err := writeTempFile("", "strict", src)
+		if err != nil {
+			panic(err)
+		}
+		defer os.Remove(tempFile)
+
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, tempFile, nil, parser.ImportsOnly)
+		if err != nil {
+			panic(err)
+		}
+
+		return buildImportLines(tempFile, f)
+	}
+	return genIdealLines(idealFileData)
 }
 
 // writeTempFile is from official x/tools/cmd/goimports source code
