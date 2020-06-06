@@ -2,4 +2,7 @@ module github.com/momotaro98/strictimportsort
 
 go 1.14
 
-require github.com/minio/minio v0.0.0-20200527134543-53aaa5d2a5f0
+require (
+	github.com/minio/minio v0.0.0-20200527134543-53aaa5d2a5f0
+	golang.org/x/tools v0.0.0-20200502202811-ed308ab3e770
+)

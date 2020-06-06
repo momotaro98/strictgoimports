@@ -30,7 +30,7 @@ func Test(t *testing.T) {
 	}
 	for _, tt := range passCases {
 		t.Run(tt.name, func(t *testing.T) {
-			_, poses, actCorrect := Run(tt.filePath, tt.localPath)
+			_, poses, actCorrect, _ := Run(tt.filePath, tt.localPath)
 			if len(poses) != 0 {
 				t.Error("unexpected:", poses)
 			}
@@ -76,7 +76,7 @@ func Test(t *testing.T) {
 
 	for _, tt := range failCases {
 		t.Run(tt.name, func(t *testing.T) {
-			fset, poses, actCorrect := Run(tt.filePath, tt.localPath)
+			fset, poses, actCorrect, _ := Run(tt.filePath, tt.localPath)
 			for _, pos := range poses {
 				if p := fset.Position(pos).String(); p != fmt.Sprintf("%s:%s", tt.filePath, tt.expectedLineColumn) {
 					t.Error("unexpected:", p)

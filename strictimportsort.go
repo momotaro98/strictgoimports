@@ -8,19 +8,20 @@ import (
 	"go/token"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"strings"
+
+	"golang.org/x/tools/imports"
 )
 
-func Run(filePath, localPaths string) (fileSet *token.FileSet, pos []token.Pos, correctImport string) {
+func Run(filePath, localPaths string) (fileSet *token.FileSet, pos []token.Pos, correctImport string, fixed []byte) {
 	fileSet = token.NewFileSet()
 	f, err := parser.ParseFile(fileSet, filePath, nil, parser.ImportsOnly)
 	if err != nil {
-		return nil, nil, ""
+		return nil, nil, "", nil
 	}
 
 	realLines := buildImportLines(filePath, f)
-	idealLines := buildIdealImportLines(filePath, localPaths)
+	idealLines, idealSrc := buildIdeal(filePath, localPaths)
 
 	// Compare Real import lines and Ideal import lines
 	if isSame, ImptLineIdx := func(real, ideal ImportLines) (bool, int) {
@@ -37,10 +38,10 @@ func Run(filePath, localPaths string) (fileSet *token.FileSet, pos []token.Pos, 
 		}
 		return true, -1
 	}(realLines, idealLines); !isSame {
-		return fileSet, []token.Pos{realLines[ImptLineIdx].pos}, idealLines.String()
+		return fileSet, []token.Pos{realLines[ImptLineIdx].pos}, idealLines.String(), idealSrc
 	}
 
-	return fileSet, nil, ""
+	return fileSet, nil, "", nil
 }
 
 type ImportLines []*imptLine
@@ -147,7 +148,7 @@ func buildImportLines(filePath string, f *ast.File) ImportLines {
 	return work()
 }
 
-func buildIdealImportLines(filePath, localPaths string) ImportLines {
+func buildIdeal(filePath, localPaths string) (ImportLines, []byte) {
 	genFileStringRemovedWhitelineInImport := func() string {
 		input, err := ioutil.ReadFile(filePath)
 		if err != nil {
@@ -174,16 +175,24 @@ func buildIdealImportLines(filePath, localPaths string) ImportLines {
 	}
 	idealLinesString := genFileStringRemovedWhitelineInImport()
 
-	genIdealFileData := func(src string) []byte {
-		tempFile, err := writeTempFile("", "strict", []byte(src))
+	genIdealFileData := func(srcStr string) []byte {
+		src := []byte(srcStr)
+
+		tempFile, err := writeTempFile("", "strict", src)
 		if err != nil {
 			panic(err)
 		}
 		defer os.Remove(tempFile)
 
-		idealFileData, err := exec.Command(
-			"goimports",
-			"-local", localPaths, tempFile).CombinedOutput()
+		opt := &imports.Options{
+			TabWidth:  8,
+			TabIndent: true,
+			Comments:  true,
+			Fragment:  true,
+		}
+		imports.LocalPrefix = localPaths
+		imports.Debug = false
+		idealFileData, err := imports.Process(tempFile, src, opt)
 		if err != nil {
 			panic(err)
 		}
@@ -207,7 +216,7 @@ func buildIdealImportLines(filePath, localPaths string) ImportLines {
 
 		return buildImportLines(tempFile, f)
 	}
-	return genIdealLines(idealFileData)
+	return genIdealLines(idealFileData), idealFileData
 }
 
 // writeTempFile is from official x/tools/cmd/goimports source code

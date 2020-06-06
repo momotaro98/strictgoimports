@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ const (
 )
 
 var (
+	write           = flag.Bool("w", false, "write result to (source) file instead of stdout")
 	localPaths      = flag.String("local", "", "put imports beginning with this string after 3rd-party packages; comma-separated list")
 	excludes        = flag.String("exclude", "", "file names you wanna exclude; wile card is welcome; comma-separated list")
 	excludeDirs     = flag.String("exclude-dir", "", "directory names you wanna exclude; wile card is welcome; comma-separated list")
@@ -86,11 +88,30 @@ func walk(rootPath string) bool {
 		if !strings.HasSuffix(filePath, ".go") {
 			return nil
 		}
-		fset, poses, correctImport := strictimportsort.Run(filePath, *localPaths)
-		for _, pos := range poses {
-			fmt.Printf("%s: import not sorted correctly. should be replace to\n%s\n", fset.Position(pos), correctImport)
-			lintFailed = true
+
+		fset, poses, correctImport, fixed := strictimportsort.Run(filePath, *localPaths)
+
+		if *write {
+			if len(poses) > 0 {
+				// From goimports source code > On Windows, we need to re-set the permissions from the file. See golang/go#38225.
+				var perms os.FileMode
+				if fi, err := os.Stat(filePath); err == nil {
+					perms = fi.Mode() & os.ModePerm
+				}
+				err = ioutil.WriteFile(filePath, fixed, perms)
+				if err != nil {
+					return err
+				}
+			}
+		} else {
+			for _, pos := range poses {
+				fmt.Printf("%s: import not sorted correctly. should be replace to\n%s\n",
+					fset.Position(pos), correctImport,
+				)
+				lintFailed = true
+			}
 		}
+
 		return nil
 	})
 	return lintFailed
