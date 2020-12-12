@@ -13,11 +13,14 @@ import (
 	"github.com/momotaro98/strictimportsort"
 )
 
+const version = "1.1.2"
+
 const (
 	invalidArgumentExitCode = 3
 )
 
 var (
+	sVersion        = flag.Bool("version", false, "show version")
 	write           = flag.Bool("w", false, "write result to (source) file instead of stdout")
 	localPaths      = flag.String("local", "", "put imports beginning with this string after 3rd-party packages; comma-separated list")
 	excludes        = flag.String("exclude", "", "file names you wanna exclude; wile card is welcome; comma-separated list")
@@ -27,6 +30,11 @@ var (
 
 func main() {
 	flag.Parse()
+
+	if *sVersion {
+		fmt.Println("version:", version)
+		os.Exit(0)
+	}
 
 	if len(flag.Args()) == 0 {
 		fmt.Println("missing argument: filepath")

@@ -7,7 +7,7 @@ test: ## Run all tests
 
 .PHONY: build
 build: ## Run all tests
-	@go build ./cmd/strictimportsort
+	@go build -o ./cmd/strictimportsort/strictimportsort ./cmd/strictimportsort
 
 .PHONY: lint
 lint: ## Run linter
