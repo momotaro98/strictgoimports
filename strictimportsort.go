@@ -3,6 +3,7 @@ package strictimportsort
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -13,6 +14,16 @@ import (
 	"golang.org/x/tools/imports"
 )
 
+type Err struct {
+	Pos     token.Pos
+	Message string
+	FileSet *token.FileSet
+}
+
+func (e *Err) Error() string {
+	return fmt.Sprintf("Message: %s. Position: %s", e.Message, e.FileSet.Position(e.Pos).String())
+}
+
 func Run(filePath, localPaths string) (fileSet *token.FileSet, pos []token.Pos, correctImport string, fixed []byte) {
 	fileSet = token.NewFileSet()
 	f, err := parser.ParseFile(fileSet, filePath, nil, parser.ImportsOnly)
@@ -20,8 +31,8 @@ func Run(filePath, localPaths string) (fileSet *token.FileSet, pos []token.Pos, 
 		return nil, nil, "", nil
 	}
 
-	realLines := buildImportLines(filePath, f)
-	idealLines, idealSrc := buildIdeal(filePath, localPaths)
+	realLines := buildImportLines(filePath, f, fileSet)
+	idealLines, idealSrc := buildIdeal(filePath, localPaths, fileSet)
 
 	// Compare Real import lines and Ideal import lines
 	if isSame, ImptLineIdx := func(real, ideal ImportLines) (bool, int) {
@@ -50,7 +61,7 @@ func (ils ImportLines) String() string {
 	buf := bytes.NewBuffer(make([]byte, 0, len(ils)*50))
 	buf.WriteString("import (\n")
 	for i := range ils {
-		if !ils[i].isWhiteline() {
+		if !ils[i].isWhiteLine() {
 			buf.WriteString("\t")
 		}
 		if nm := ils[i].name; nm != "" {
@@ -59,7 +70,10 @@ func (ils ImportLines) String() string {
 		}
 		buf.WriteString(ils[i].path)
 		if c := ils[i].comment; c != "" {
-			buf.WriteString(" //")
+			if !ils[i].isCommentLine() {
+				buf.WriteString(" ")
+			}
+			buf.WriteString("//")
 			buf.WriteString(ils[i].comment)
 		}
 		buf.WriteString("\n")
@@ -76,13 +90,59 @@ type imptLine struct {
 	pos         token.Pos // File offset in the file. first char of the line
 }
 
-func (l *imptLine) isWhiteline() bool {
-	return l.name == "" && l.path == ""
+func (l *imptLine) isWhiteLine() bool {
+	return l.name == "" && l.path == "" && l.comment == ""
+}
+
+func (l *imptLine) isCommentLine() bool {
+	return l.name == "" && l.path == "" && l.comment != ""
 }
 
 // buildImportLines returns empty length list when
 // the target code has no `import` or single path `import "path"`
-func buildImportLines(filePath string, f *ast.File) ImportLines {
+func buildImportLines(filePath string, f *ast.File, fileSet *token.FileSet) ImportLines {
+	const starCommentErrMsg = "there's star comment (/* */) in import lines"
+
+	raisePanicWithPositionAndMessage := func(pos token.Pos, message string) {
+		err := &Err{
+			Pos:     pos,
+			Message: message,
+			FileSet: fileSet,
+		}
+		panic(err)
+	}
+
+	findImportPosition := func() token.Pos {
+		const (
+			cgoValue = `"C"`
+		)
+		var (
+			pos                     = token.Pos(0)
+			alreadyGot1stImportDecl bool
+		)
+		for i, d := range f.Decls {
+			switch v := d.(type) {
+			case *ast.GenDecl:
+				if v.Tok == token.IMPORT {
+					if alreadyGot1stImportDecl {
+						if f.Imports[len(f.Imports)-1].Path.Value != cgoValue {
+							raisePanicWithPositionAndMessage(v.TokPos, "there's more than one `import` declaration")
+						}
+					}
+					if f.Imports[i].Path.Value != cgoValue {
+						pos = v.TokPos
+						alreadyGot1stImportDecl = true
+					}
+				}
+			}
+		}
+		if int(pos) == 0 {
+			panic("no `import` declaration")
+		}
+		return pos
+	}
+	importPosition := findImportPosition() // `import` Position below `import "C"`
+
 	work := func() []*imptLine {
 		lines := make([]*imptLine, 0, len(f.Imports)*2) // *2 means considering white lines in `import ()`
 
@@ -94,8 +154,9 @@ func buildImportLines(filePath string, f *ast.File) ImportLines {
 		defer file.Close()
 
 		var (
-			curFileLineNum   int // will be imptLine.fileLineNum
-			curImportSpecIdx int // will be imptLine.name, path, pos
+			curFileLineNum    int // will be imptLine.fileLineNum
+			nextImportSpecIdx int // will be imptLine.name, path, pos
+			nextLinePosition  token.Pos
 		)
 		s := bufio.NewScanner(file)
 		for s.Scan() {
@@ -107,28 +168,48 @@ func buildImportLines(filePath string, f *ast.File) ImportLines {
 			)
 
 			text := s.Text()
-			if strings.HasPrefix(text, `)`) {
+
+			if strings.Contains(text, `*/import (`) {
+				pos := importPosition
+				raisePanicWithPositionAndMessage(pos, starCommentErrMsg)
+			}
+			if isImportedLinesStarted {
+				if strings.Contains(text, "/*") || strings.Contains(text, `*/`) {
+					raisePanicWithPositionAndMessage(nextLinePosition, starCommentErrMsg)
+				}
+			}
+
+			// skip for CGO
+			if strings.HasPrefix(text, `import "C"`) {
+				nextImportSpecIdx++
+				continue
+			}
+
+			if isImportedLinesStarted && strings.HasPrefix(text, `)`) {
 				return lines
 			} else if strings.HasPrefix(text, `import (`) {
 				isImportedLinesStarted = true
+
+				impPos := importPosition
+				nextLinePosition = token.Pos(1 + int(impPos) + len(text) + 1)
 			} else if isImportedLinesStarted {
-				if text == "" { // white line in `import ()`
-					// The following code considers only case where there's one white line, which means
-					// the target code must be formatted by gofmt in advance.
-					pos = f.Imports[curImportSpecIdx].Pos() - 2 // take "\t" and "\n" from head of next ImportSpec
+				if text == "" || strings.HasPrefix(text, "\t//") {
+					pos = nextLinePosition
 				} else {
-					if nm := f.Imports[curImportSpecIdx].Name; nm != nil {
-						name = f.Imports[curImportSpecIdx].Name.Name
+					if nm := f.Imports[nextImportSpecIdx].Name; nm != nil {
+						name = f.Imports[nextImportSpecIdx].Name.Name
 					}
-					path = f.Imports[curImportSpecIdx].Path.Value
-					pos = f.Imports[curImportSpecIdx].Pos()
+					path = f.Imports[nextImportSpecIdx].Path.Value
+					pos = f.Imports[nextImportSpecIdx].Pos()
 
-					if c := strings.SplitN(text, "//", 2); len(c) == 2 {
-						comment = c[1]
-					}
-
-					curImportSpecIdx++
+					nextImportSpecIdx++
 				}
+
+				if c := strings.SplitN(text, "//", 2); len(c) == 2 {
+					comment = c[1]
+				}
+
+				nextLinePosition = token.Pos(int(nextLinePosition) + len(text) + 1)
 
 				lines = append(lines, &imptLine{
 					name:        name,
@@ -148,32 +229,48 @@ func buildImportLines(filePath string, f *ast.File) ImportLines {
 	return work()
 }
 
-func buildIdeal(filePath, localPaths string) (ImportLines, []byte) {
-	genFileStringRemovedWhitelineInImport := func() string {
+func buildIdeal(filePath, localPaths string, fileSet *token.FileSet) (ImportLines, []byte) {
+	genFileStringRemovedWhiteLineAndSortedCommentLineInImport := func() string {
 		input, err := ioutil.ReadFile(filePath)
 		if err != nil {
 			panic(err)
 		}
-		inputLines := strings.Split(string(input), "\n")
 
-		replacedLines := make([]string, 0, len(inputLines))
+		fileAllLines := strings.Split(string(input), "\n")
+
+		replacedFileAllLines := make([]string, 0, len(fileAllLines))
+		importCommentLines := make([]string, 0, len(fileAllLines)/10)
+		importPathLines := make([]string, 0, len(fileAllLines)/10)
+
 		var isInImportBlock bool
-		for _, line := range inputLines {
-			if isInImportBlock && line == "" {
-				continue
-			} else {
-				replacedLines = append(replacedLines, line)
+		for _, line := range fileAllLines {
+			if isInImportBlock && strings.HasPrefix(line, `)`) {
+				isInImportBlock = false
+
+				replacedFileAllLines = append(replacedFileAllLines, importCommentLines...)
+				replacedFileAllLines = append(replacedFileAllLines, importPathLines...)
 			}
+
+			if isInImportBlock {
+				if line == "" {
+					continue // remove white line
+				} else if isInImportBlock && strings.HasPrefix(line, "\t//") {
+					importCommentLines = append(importCommentLines, line)
+				} else {
+					importPathLines = append(importPathLines, line)
+				}
+			} else {
+				replacedFileAllLines = append(replacedFileAllLines, line)
+			}
+
 			if strings.HasPrefix(line, `import (`) {
 				isInImportBlock = true
 			}
-			if isInImportBlock && strings.HasPrefix(line, `)`) {
-				isInImportBlock = false
-			}
 		}
-		return strings.Join(replacedLines, "\n")
+
+		return strings.Join(replacedFileAllLines, "\n")
 	}
-	idealLinesString := genFileStringRemovedWhitelineInImport()
+	idealLinesString := genFileStringRemovedWhiteLineAndSortedCommentLineInImport()
 
 	genIdealFileData := func(srcStr string) []byte {
 		src := []byte(srcStr)
@@ -214,7 +311,7 @@ func buildIdeal(filePath, localPaths string) (ImportLines, []byte) {
 			panic(err)
 		}
 
-		return buildImportLines(tempFile, f)
+		return buildImportLines(tempFile, f, fileSet)
 	}
 	return genIdealLines(idealFileData), idealFileData
 }
