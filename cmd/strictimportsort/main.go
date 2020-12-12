@@ -33,6 +33,13 @@ func main() {
 		os.Exit(invalidArgumentExitCode)
 	}
 
+	defer func() {
+		err := recover()
+		if err != nil {
+			fmt.Printf("Error: %+v\n", err)
+		}
+	}()
+
 	var lintFailed bool
 	for _, path := range flag.Args() {
 		rootPath, err := filepath.Abs(path)
