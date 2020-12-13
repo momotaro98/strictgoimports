@@ -1,4 +1,4 @@
-package strictimportsort
+package strictgoimports
 
 import (
 	"fmt"
@@ -65,7 +65,7 @@ func TestStandard(t *testing.T) {
 
 	_ "github.com/golang/mock/gomock"
 
-	_ "github.com/momotaro98/strictimportsort"
+	_ "github.com/momotaro98/strictgoimports"
 )`,
 		},
 		{
@@ -77,7 +77,7 @@ func TestStandard(t *testing.T) {
 	_ "fmt"
 
 	_ "github.com/golang/mock/gomock"
-	_ "github.com/momotaro98/strictimportsort"
+	_ "github.com/momotaro98/strictgoimports"
 )`,
 		},
 	}
@@ -114,7 +114,7 @@ func TestForInnerCommentLine(t *testing.T) {
 	_ "strings"
 
 	_ "github.com/golang/mock/gomock"
-	_ "github.com/momotaro98/strictimportsort"
+	_ "github.com/momotaro98/strictgoimports"
 )`,
 	}
 
@@ -195,7 +195,7 @@ func TestForCGO(t *testing.T) {
 	_ "fmt"
 
 	_ "github.com/golang/mock/gomock"
-	_ "github.com/momotaro98/strictimportsort"
+	_ "github.com/momotaro98/strictgoimports"
 )`,
 		},
 		{
@@ -207,7 +207,7 @@ func TestForCGO(t *testing.T) {
 	_ "fmt"
 
 	_ "github.com/golang/mock/gomock"
-	_ "github.com/momotaro98/strictimportsort"
+	_ "github.com/momotaro98/strictgoimports"
 )`,
 		},
 	}

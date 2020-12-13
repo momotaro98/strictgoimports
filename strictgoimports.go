@@ -1,4 +1,4 @@
-package strictimportsort
+package strictgoimports
 
 import (
 	"bufio"

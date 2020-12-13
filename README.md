@@ -1,9 +1,9 @@
-# strictimportsort
+# strictgoimports
 
 ## Install
 
 ```
-$ go get -u github.com/momotaro98/strictimportsort/cmd/strictimportsort
+$ go get -u github.com/momotaro98/strictgoimports/cmd/strictgoimports
 ```
 
 ## Usage
@@ -11,7 +11,7 @@ $ go get -u github.com/momotaro98/strictimportsort/cmd/strictimportsort
 ### Use as checker
 
 ```shell script
-$ strictimportsort -exclude "*_mock.go,*.pb.go" -exclude-dir "testmock" -local "github.com/momotaro98/mixlunch-service-api" $HOME/.ghq/github.com/momotaro98/mixlunch-service-api
+$ strictgoimports -exclude "*_mock.go,*.pb.go" -exclude-dir "testmock" -local "github.com/momotaro98/mixlunch-service-api" $HOME/.ghq/github.com/momotaro98/mixlunch-service-api
 ```
 
 You'll see instructions like below.
@@ -51,7 +51,7 @@ import (
 You can modify all of the target files by using `-w` option.
 
 ```shell script
-$ strictimportsort -w -local "github.com/username/repo" .
+$ strictgoimports -w -local "github.com/username/repo" .
 ```
 
 This results in fixing import paths.

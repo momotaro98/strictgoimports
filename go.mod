@@ -1,4 +1,4 @@
-module github.com/momotaro98/strictimportsort
+module github.com/momotaro98/strictgoimports
 
 go 1.14
 

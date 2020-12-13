@@ -10,7 +10,7 @@ import (
 
 	"github.com/minio/minio/pkg/wildcard"
 
-	"github.com/momotaro98/strictimportsort"
+	"github.com/momotaro98/strictgoimports"
 )
 
 const version = "1.1.2"
@@ -104,7 +104,7 @@ func walk(rootPath string) bool {
 			return nil
 		}
 
-		fset, poses, correctImport, fixed := strictimportsort.Run(filePath, *localPaths)
+		fset, poses, correctImport, fixed := strictgoimports.Run(filePath, *localPaths)
 
 		if *write {
 			if len(poses) > 0 {

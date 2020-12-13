@@ -7,13 +7,13 @@ test: ## Run all tests
 
 .PHONY: build
 build: ## Run all tests
-	@go build -o ./cmd/strictimportsort/strictimportsort ./cmd/strictimportsort
+	@go build -o ./cmd/strictgoimports/strictgoimports ./cmd/strictgoimports
 
 .PHONY: lint
 lint: ## Run linter
 	go vet `go list ./...`
 	@make build
-	./cmd/strictimportsort/strictimportsort -local 'github.com/momotaro98/strictimportsort' .
+	./cmd/strictgoimports/strictgoimports -local 'github.com/momotaro98/strictgoimports' .
 
 .PHONY: help
 help: ## Help command
