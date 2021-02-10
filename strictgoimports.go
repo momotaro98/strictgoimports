@@ -24,11 +24,27 @@ func (e *Err) Error() string {
 	return fmt.Sprintf("Message: %s. Position: %s", e.Message, e.FileSet.Position(e.Pos).String())
 }
 
+func checkTheresImportDecl(f *ast.File) bool {
+	for _, d := range f.Decls {
+		switch v := d.(type) {
+		case *ast.GenDecl:
+			if v.Tok == token.IMPORT {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func Run(filePath, localPaths string) (fileSet *token.FileSet, pos []token.Pos, correctImport string, fixed []byte) {
 	fileSet = token.NewFileSet()
 	f, err := parser.ParseFile(fileSet, filePath, nil, parser.ImportsOnly)
 	if err != nil {
 		return nil, nil, "", nil
+	}
+
+	if !checkTheresImportDecl(f) {
+		return fileSet, nil, "", nil
 	}
 
 	realLines := buildImportLines(filePath, f, fileSet)
