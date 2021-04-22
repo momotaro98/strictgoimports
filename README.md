@@ -1,5 +1,7 @@
 # strictgoimports
 
+strictgoimports is made to resolve an issue goimports has. The issue is still discussed [here](https://github.com/golang/go/issues/20818).
+
 ## Install
 
 ```
