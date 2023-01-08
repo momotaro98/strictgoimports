@@ -5,7 +5,7 @@ strictgoimports is made to resolve an issue goimports has. The issue is still di
 ## Install
 
 ```
-$ go get -u github.com/momotaro98/strictgoimports/cmd/strictgoimports
+$ go install github.com/momotaro98/strictgoimports/cmd/strictgoimports@latest
 ```
 
 ## Usage

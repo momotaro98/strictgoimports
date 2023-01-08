@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/minio/minio/pkg/wildcard"
+	wildcard "github.com/IGLOU-EU/go-wildcard"
 
 	"github.com/momotaro98/strictgoimports"
 )

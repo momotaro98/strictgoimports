@@ -1,9 +1,13 @@
 module github.com/momotaro98/strictgoimports
 
-go 1.14
+go 1.19
 
 require (
-	github.com/golang/mock v1.2.0
-	github.com/minio/minio v0.0.0-20200527134543-53aaa5d2a5f0
-	golang.org/x/tools v0.0.0-20200502202811-ed308ab3e770
+	github.com/IGLOU-EU/go-wildcard v1.0.3
+	golang.org/x/tools v0.5.0
+)
+
+require (
+	golang.org/x/mod v0.7.0 // indirect
+	golang.org/x/sys v0.4.0 // indirect
 )
